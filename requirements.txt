@@ -30,3 +30,7 @@ termcolor
 jupyterlab
 pylint
 pytest
+
+#scraping
+selenium
+webdriver-manager

@@ -31,9 +31,9 @@ def create_driver(url='https://finance.yahoo.com/topic/crypto/'):
 
     return driver
 
-def get_basic_info(driver):
+def get_basic_info(driver, export=True):
     '''
-    From 'https://finance.yahoo.com/topic/crypto/' get basic informations
+    From 'https://finance.yahoo.com/topic/crypto/' get basic information
     '''
     # Accept Cookies
     driver.find_element(By.XPATH, '//*[@id="consent-page"]/div/div/div/form/div[2]/div[2]/button[1]').click()
@@ -80,83 +80,72 @@ def get_basic_info(driver):
         'LINK':links
         })
 
+    if export == True:
+        today = pd.Timestamp.today()
+        df.to_csv(f"../raw_data/{today}", index=False)
+
     return df
 
-def get_more_info(driver):
+def get_full_info(df):
     '''
-    From 'https://finance.yahoo.com/topic/crypto/' get basic informations
+    Df from get_basic_info() extract urls
+    Get date, full text (if available, )
     '''
 
-    # Accept Cookies
-    driver.find_element(By.XPATH, '//*[@id="consent-page"]/div/div/div/form/div[2]/div[2]/button[1]').click()
-    driver.implicitly_wait(15)
-
-
-    # Scroll down to get 20 articles
-
-    # # Get scroll height
-    # last_height = driver.execute_script("return document.body.scrollHeight")
-
-    # SCROLL_PAUSE_TIME = 0.5
-
-    # while True:
-    #     # Scroll down to bottom
-    #     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-    #     # Wait to load page
-    #     time.sleep(SCROLL_PAUSE_TIME)
-
-    #     # Calculate new scroll height and compare with last scroll height
-    #     new_height = driver.execute_script("return document.body.scrollHeight")
-    #     if new_height == last_height:
-    #         break
-    #     last_height = new_height
-
-    # Scrap articles
-    articles = driver.find_elements(By.CLASS_NAME, 'Ov\(h\).Pend\(44px\).Pstart\(25px\)')
-    titles = []
-    summaries = []
-    sources = []
-    links = []
+    df = df.copy()
     dates = []
     full_texts = []
-    for article in articles:
-        titles.append(article.find_element(By.TAG_NAME, "a").text)
-        summaries.append(article.find_element(By.TAG_NAME, "p").text)
-        sources.append(article.find_element(By.TAG_NAME, "span").text)
-        links.append(article.find_element(By.TAG_NAME, 'a').get_attribute('href'))
+    external_link = []
+    cryptos = []
 
-    for id, title in enumerate(titles):
-        article = driver.find_element(By.LINK_TEXT, title).click()
-        print(f"article {id} OK")
+    urls = df["LINK"].to_list()
+
+    for id, url in enumerate(urls):
+        driver = create_driver(url)
+
+        # Accept cookies
+        driver.find_element(By.XPATH, '//*[@id="consent-page"]/div/div/div/form/div[2]/div[2]/button[1]').click()
+        driver.implicitly_wait(5)
         try:
-            driver.find_element(By.XPATH, '//article/div/div/div/div/div/div[2]/div[3]/div[2]/button').click()
+            # Find button for external sources (i.e no full text available)
+            driver.find_element(By.XPATH, '//article/div/div/div[2]/a')
+            external_link.append(1)
         except:
-            pass
+            try:
+                driver.find_element(By.XPATH, '//article/div/div/div/div/div/div[2]/div[3]/div[2]/button').click()
+                external_link.append(0)
+            except:
+                external_link.append(0)
+
+        try:
+            currencies = driver.find_elements(By.CLASS_NAME, "xray-card-content")
+            dico = {}
+            for currency in currencies:
+                name = currency.find_element(By.CLASS_NAME, "xray-entity-title-link").text
+                var = currency.find_element(By.CLASS_NAME, "xray-fin-streamer").text
+                dico[name] = var
+            cryptos.append(dico)
+        except:
+            cryptos.append("General")
 
         dates.append(driver.find_element(By.TAG_NAME, 'time').get_attribute('datetime'))
         full_texts.append(driver.find_element(By.CLASS_NAME, "caas-body").text)
-        driver.back()
-        driver.implicitly_wait(5)
+        print(f"article {id+1} done")
 
-    driver.quit()
+        driver.close()
 
-    # Create df to be returned
-    df = pd.DataFrame.from_dict({
-        'TITLE':titles,
-        'SUMMARY':summaries,
-        'SOURCE':sources,
-        'LINK':links,
-        'DATE':dates,
-        'FULL_TEXT':full_texts
-        })
+    df["DATE"] = dates
+    df["FULL_TEXT"] = full_texts
+    df["CRYPTOS"] = cryptos
+    df["EXTERNAL"] = external_link
 
     return df
 
-
-
 if __name__ == "__main__":
+    print("Creating driver")
     driver = create_driver()
+    print("Gathering basic info")
     df = get_basic_info(driver)
-    df = append_full_info(df)
+    print("Getting full info")
+    df = get_full_info(df)
     print(df)
